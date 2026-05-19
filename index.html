@@ -90,7 +90,7 @@
 
     <div id="main-menu" class="menu-screen">
         <h1>STAR REMOVER</h1>
-        <h2>ENDLESS SUN</h2>
+        <h2>ENDLESS</h2>
         
         <div id="leaderboard-container">
             <p style="color:#00ffcc; font-size:12px; margin:0;" class="blink">CONNECTING TO DATALINK...</p>
@@ -300,6 +300,7 @@
         let coinMeter = 0; let isBreakerActive = false; let breakerFrames = 0;
 
         let starGroup, starCore, starCorona;
+        let starUniforms; // Shader uniforms for the textured sun
         let starProps = { radius: 2500, rotSpeed: 0.002, rotAxis: new THREE.Vector3(0,1,0), flareSpeed: 0.005, flareIntensity: 1.0 };
         let gameTime = 0;
         
@@ -386,8 +387,9 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.fog = new THREE.Fog(0x000000, 500, 35000);
-            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 35000);
+            // Pushed fog back slightly to accommodate the clamped star distance
+            scene.fog = new THREE.Fog(0x000000, 500, 40000);
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 45000);
             camera.position.set(0, 35, 65); camera.lookAt(0, 0, -50);
 
             renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -451,7 +453,6 @@
             const leftEng = new THREE.Mesh(engGeo, matDark); leftEng.position.set(-2, 0.5, 4.5); ship.add(leftEng);
             const rightEng = new THREE.Mesh(engGeo, matDark); rightEng.position.set(2, 0.5, 4.5); ship.add(rightEng);
             
-            // Increased headlight power and range
             const headLightLeft = new THREE.PointLight(0xffffff, 3.0, 400); headLightLeft.position.set(-1.5, 0.5, -8); ship.add(headLightLeft);
             const headLightRight = new THREE.PointLight(0xffffff, 3.0, 400); headLightRight.position.set(1.5, 0.5, -8); ship.add(headLightRight);
 
@@ -480,10 +481,88 @@
 
         function buildGiantStar() {
             starGroup = new THREE.Group();
-            starCore = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), new THREE.MeshBasicMaterial({ color: 0xffffff })); starGroup.add(starCore);
+            
+            // Added contrast and pixelDensity uniforms
+            starUniforms = {
+                time: { value: 0.0 },
+                baseColor: { value: new THREE.Color(0xffffff) },
+                contrast: { value: 0.5 },
+                pixelDensity: { value: 40.0 } 
+            };
+            
+            const vertexShader = `
+                varying vec2 vUv;
+                varying vec3 vPosition;
+                void main() {
+                    vUv = uv;
+                    vPosition = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `;
+            
+            const fragmentShader = `
+                uniform float time;
+                uniform vec3 baseColor;
+                uniform float contrast;
+                uniform float pixelDensity;
+                
+                varying vec2 vUv;
+                varying vec3 vPosition;
+                
+                float hash(vec3 p) {
+                    p = fract(p * 0.3183099 + .1);
+                    p *= 17.0;
+                    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+                }
+                
+                float noise(vec3 x) {
+                    vec3 p = floor(x);
+                    vec3 f = fract(x);
+                    f = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(mix(hash(p + vec3(0,0,0)), hash(p + vec3(1,0,0)), f.x),
+                                   mix(hash(p + vec3(0,1,0)), hash(p + vec3(1,1,0)), f.x), f.y),
+                               mix(mix(hash(p + vec3(0,0,1)), hash(p + vec3(1,0,1)), f.x),
+                                   mix(hash(p + vec3(0,1,1)), hash(p + vec3(1,1,1)), f.x), f.y), f.z);
+                }
+
+                void main() {
+                    // QUANTIZE THE POSITION FOR PIXELATION
+                    // This snaps the smooth sphere coordinates into a blocky 3D grid
+                    vec3 pixelatedPos = floor(vPosition * pixelDensity) / pixelDensity;
+                    
+                    vec3 p = pixelatedPos * 4.0; 
+                    float n1 = noise(p + time * 0.5);
+                    float n2 = noise(p * 2.0 - time * 0.8);
+                    
+                    float totalNoise = (n1 + n2 * 0.5) / 1.5;
+                    
+                    // Use the contrast uniform to sharpen or soften the spots
+                    float edge = mix(0.4, 0.05, contrast); 
+                    float spots = smoothstep(0.5 - edge, 0.5 + edge, totalNoise);
+                    
+                    // Scale the extreme darks and brights based on the contrast uniform
+                    vec3 darkColor = baseColor * mix(0.6, 0.1, contrast);
+                    vec3 brightColor = baseColor * mix(1.2, 3.0, contrast); 
+                    
+                    vec3 finalColor = mix(darkColor, brightColor, spots);
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+            `;
+
+            starCore = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 64, 64), 
+                new THREE.ShaderMaterial({
+                    uniforms: starUniforms,
+                    vertexShader: vertexShader,
+                    fragmentShader: fragmentShader
+                })
+            ); 
+            starGroup.add(starCore);
+            
             starCorona = new THREE.Mesh(new THREE.IcosahedronGeometry(1.03, 3), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending }));
             starCorona.userData.origPos = starCorona.geometry.attributes.position.clone(); starGroup.add(starCorona);
             starGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1.1, 32, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending })));
+            
             scene.add(starGroup);
         }
 
@@ -491,7 +570,14 @@
             starProps.radius = 1500 + Math.random() * 3500; starGroup.scale.set(starProps.radius, starProps.radius, starProps.radius);
             let hue = Math.random(); let sat = 0.6 + Math.random() * 0.4; let lit = 0.3 + Math.random() * 0.5;
             let color = new THREE.Color().setHSL(hue, sat, lit);
-            starCore.material.color = color; starCorona.material.color = new THREE.Color().setHSL(hue, sat, Math.min(1.0, lit + 0.2));
+            
+            starUniforms.baseColor.value = color; 
+            
+            // Randomize the new shader properties for every sector
+            starUniforms.contrast.value = 0.1 + Math.random() * 0.4; 
+            starUniforms.pixelDensity.value = 25.0 + Math.random() * 50.0; // Randomize how "chunky" the pixels are
+            
+            starCorona.material.color = new THREE.Color().setHSL(hue, sat, Math.min(1.0, lit + 0.2));
             starGroup.children[2].material.color = color; 
             starLight.color = color; starLight.intensity = 1.5 + Math.random() * 6.5;
             starProps.rotSpeed = (Math.random() - 0.5) * 0.005; starProps.rotAxis.set(Math.random() - 0.5, Math.random(), Math.random() - 0.5).normalize();
@@ -519,7 +605,6 @@
 
         function spawnCoin(randomZ = false) {
             const isShieldCoin = Math.random() > 0.8; 
-            // Changed basic coins to purple (0xff00ff) to match breaker UI
             const hexColor = isShieldCoin ? 0x0088ff : 0xff00ff;
             const coinGroup = new THREE.Group(); 
             
@@ -591,7 +676,6 @@
         function activateBreaker() {
             isBreakerActive = true; 
             breakerFrames = 360; 
-            // We no longer instantly set coinMeter to 0, so it can drain over time.
             shieldMesh.visible = true; shieldMesh.material.color.setHex(0xff00ff); shieldMesh.material.wireframe = false; shieldMesh.material.opacity = 0.5;
             sfxBreaker();
         }
@@ -641,6 +725,9 @@
             gameTime++;
             animateStarFlares();
             
+            // Push time value to our new custom shader
+            if (starUniforms) starUniforms.time.value = gameTime * 0.015;
+            
             if (gameState === 'menu') {
                 starGroup.position.z = -3000; starLight.position.set(0, 0, starGroup.position.z);
                 ship.position.y = Math.sin(gameTime * 0.02) * 1.5;
@@ -680,7 +767,13 @@
             let targetSpeed = baseSpeed + (boostGear * 3.5); if (isBreakerActive) targetSpeed = baseSpeed + 25; currentSpeed = lerp(currentSpeed, targetSpeed, 0.012); 
 
             distTraveled += currentSpeed;
-            starGroup.position.z = -(levelTargetDist - distTraveled) - starProps.radius; starLight.position.set(0, 0, starGroup.position.z);
+            
+            // Distance Clamping Fix
+            let actualDist = levelTargetDist - distTraveled;
+            let visualDist = Math.min(actualDist, 22000); // Caps it so it never fades behind fog plane
+            starGroup.position.z = -visualDist - starProps.radius; 
+            starLight.position.set(0, 0, starGroup.position.z);
+            
             if (distTraveled >= levelTargetDist) triggerLevelComplete();
 
             const maxSpeedCap = baseSpeed + 25; let speedIntensity = (currentSpeed - baseSpeed) / (maxSpeedCap - baseSpeed); 
@@ -733,7 +826,7 @@
             if (invincibilityFrames > 0) { invincibilityFrames--; ship.visible = (invincibilityFrames % 10 < 5); } else { ship.visible = true; }
             if (isBreakerActive) {
                 breakerFrames--; 
-                coinMeter = (breakerFrames / 360) * 100; // Physically drains the bar over time
+                coinMeter = (breakerFrames / 360) * 100;
                 shieldMesh.rotation.y += 0.3; shieldMesh.rotation.x += 0.3;
                 if (breakerFrames <= 0) { 
                     isBreakerActive = false; 
