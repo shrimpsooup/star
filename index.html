@@ -114,14 +114,8 @@
         </g>
 
         <text x="960" y="60" class="ui-text" fill="#ff3333" font-size="24" text-anchor="middle" letter-spacing="4">INTEGRITY</text>
-        <g transform="translate(0, 80)">
-            <rect x="718" y="-2" width="484" height="34" fill="none" stroke="#550000" stroke-width="4" />
-            <rect id="health-fill" x="720" y="0" width="480" height="30" fill="#ff3333" />
-            <pattern id="segments" width="30" height="30" patternUnits="userSpaceOnUse">
-                <rect x="25" y="0" width="5" height="30" fill="#000" />
-            </pattern>
-            <rect x="720" y="0" width="480" height="30" fill="url(#segments)" />
-        </g>
+        <path d="M 720 140 Q 960 40 1200 140" fill="none" stroke="#550000" stroke-width="16" />
+        <path id="health-fill-path" d="M 720 140 Q 960 40 1200 140" fill="none" stroke="#ff3333" stroke-width="16" />
 
         <path d="M 600 780 Q 450 540 600 300" fill="none" stroke="#330033" stroke-width="20" />
         <path id="breaker-fill-path" d="M 600 780 Q 450 540 600 300" fill="none" stroke="#ff00ff" stroke-width="20" />
@@ -314,7 +308,6 @@
         const hudLayer = document.getElementById('hud-layer');
         const uiScore = document.getElementById('score-val'); 
         const uiLevel = document.getElementById('level-val');
-        const uiHealthFill = document.getElementById('health-fill'); 
         const uiShieldCount = document.getElementById('shield-count');
         const uiSpeed = document.getElementById('speed-val'); 
         const uiGearSvg = document.getElementById('gear-val-svg');
@@ -328,7 +321,8 @@
         const breakerPath = document.getElementById('breaker-fill-path');
         const gearPath = document.getElementById('gear-fill-path');
         const distPath = document.getElementById('dist-fill-path');
-        let breakerLen = 0; let gearLen = 0; let distLen = 0;
+        const healthPath = document.getElementById('health-fill-path');
+        let breakerLen = 0; let gearLen = 0; let distLen = 0; let healthLen = 0;
 
         const gearFlashEl = document.getElementById('gear-flash');
         const detFlashEl = document.getElementById('detonation-flash'); 
@@ -407,9 +401,14 @@
             for(let i=0; i<maxAsteroids; i++) spawnAsteroid(true);
             for(let i=0; i<4; i++) spawnCoin(true);
 
-            breakerLen = breakerPath.getTotalLength(); gearLen = gearPath.getTotalLength(); distLen = distPath.getTotalLength();
-            breakerPath.style.strokeDasharray = breakerLen; gearPath.style.strokeDasharray = gearLen; distPath.style.strokeDasharray = distLen;
-            breakerPath.style.strokeDashoffset = breakerLen; gearPath.style.strokeDashoffset = gearLen; distPath.style.strokeDashoffset = distLen;
+            breakerLen = breakerPath.getTotalLength(); gearLen = gearPath.getTotalLength(); 
+            distLen = distPath.getTotalLength(); healthLen = healthPath.getTotalLength();
+            
+            breakerPath.style.strokeDasharray = breakerLen; gearPath.style.strokeDasharray = gearLen; 
+            distPath.style.strokeDasharray = distLen; healthPath.style.strokeDasharray = healthLen;
+            
+            breakerPath.style.strokeDashoffset = breakerLen; gearPath.style.strokeDashoffset = gearLen; 
+            distPath.style.strokeDashoffset = distLen; healthPath.style.strokeDashoffset = 0;
 
             window.addEventListener('keydown', (e) => {
                 if(keys.hasOwnProperty(e.code)) keys[e.code] = true;
@@ -452,8 +451,9 @@
             const leftEng = new THREE.Mesh(engGeo, matDark); leftEng.position.set(-2, 0.5, 4.5); ship.add(leftEng);
             const rightEng = new THREE.Mesh(engGeo, matDark); rightEng.position.set(2, 0.5, 4.5); ship.add(rightEng);
             
-            const headLightLeft = new THREE.PointLight(0xffffff, 1, 150); headLightLeft.position.set(-1.5, 0.5, -8); ship.add(headLightLeft);
-            const headLightRight = new THREE.PointLight(0xffffff, 1, 150); headLightRight.position.set(1.5, 0.5, -8); ship.add(headLightRight);
+            // Increased headlight power and range
+            const headLightLeft = new THREE.PointLight(0xffffff, 3.0, 400); headLightLeft.position.set(-1.5, 0.5, -8); ship.add(headLightLeft);
+            const headLightRight = new THREE.PointLight(0xffffff, 3.0, 400); headLightRight.position.set(1.5, 0.5, -8); ship.add(headLightRight);
 
             const shieldGeo = new THREE.IcosahedronGeometry(7, 1);
             const shieldMat = new THREE.MeshBasicMaterial({ color: 0x0088ff, wireframe: true, transparent: true, opacity: 0.8 });
@@ -519,7 +519,8 @@
 
         function spawnCoin(randomZ = false) {
             const isShieldCoin = Math.random() > 0.8; 
-            const hexColor = isShieldCoin ? 0x0088ff : 0xffcc00;
+            // Changed basic coins to purple (0xff00ff) to match breaker UI
+            const hexColor = isShieldCoin ? 0x0088ff : 0xff00ff;
             const coinGroup = new THREE.Group(); 
             
             const coinGeo = new THREE.OctahedronGeometry(3, 0);
@@ -582,11 +583,15 @@
             uiGroupSpeed.setAttribute('transform', `translate(150, 950)`);
             crosshairGroup.setAttribute('transform', `translate(0, 0)`);
 
+            camera.up.set(0, 1, 0);
+
             gameMusic.currentTime = 0; gameMusic.play().catch(e => console.log("No song.mp3 found."));
         }
 
         function activateBreaker() {
-            isBreakerActive = true; breakerFrames = 360; coinMeter = 0; 
+            isBreakerActive = true; 
+            breakerFrames = 360; 
+            // We no longer instantly set coinMeter to 0, so it can drain over time.
             shieldMesh.visible = true; shieldMesh.material.color.setHex(0xff00ff); shieldMesh.material.wireframe = false; shieldMesh.material.opacity = 0.5;
             sfxBreaker();
         }
@@ -639,6 +644,9 @@
             if (gameState === 'menu') {
                 starGroup.position.z = -3000; starLight.position.set(0, 0, starGroup.position.z);
                 ship.position.y = Math.sin(gameTime * 0.02) * 1.5;
+                camera.position.set(0, 35, 65);
+                camera.up.set(0, 1, 0);
+                camera.lookAt(0, 0, -50);
                 renderer.render(scene, camera);
                 return; 
             }
@@ -685,10 +693,11 @@
             uiGroupSpeed.setAttribute('transform', `translate(${150 - uiSpread}, ${950 + uiSpread})`);
 
             uiScore.textContent = Math.floor(score); uiLevel.textContent = sectorLevel;
-            uiHealthFill.setAttribute('width', Math.max(0, (health / 100) * 480));
             uiShieldCount.textContent = 'x' + shields; uiShieldCount.setAttribute('fill', shields > 0 ? '#00ffcc' : '#fff');
             uiSpeed.textContent = Math.floor(currentSpeed * 75); 
             uiGearSvg.textContent = boostGear === 0 ? "C" : boostGear;
+            
+            healthPath.style.strokeDashoffset = healthLen - (health / 100) * healthLen;
             gearPath.style.strokeDashoffset = gearLen - (boostCharge / 100) * gearLen;
             breakerPath.style.strokeDashoffset = breakerLen - (coinMeter / 100) * breakerLen;
             let distProgress = Math.min(distTraveled / levelTargetDist, 1.0);
@@ -697,8 +706,19 @@
             if (coinMeter >= 100 && !isBreakerActive) breakerReadyText.style.display = 'block';
             else breakerReadyText.style.display = 'none';
 
-            camera.position.y = lerp(camera.position.y, 35 - (speedIntensity * 18), 0.05); camera.position.z = lerp(camera.position.z, 65 + (speedIntensity * 15), 0.05); camera.fov = lerp(camera.fov, 65 + (speedIntensity * 55), 0.05);
-            if (speedIntensity > 0.8) camera.position.x = (Math.random() - 0.5) * 1.5; else camera.position.x = lerp(camera.position.x, 0, 0.1); camera.updateProjectionMatrix();
+            let targetCamX = ship.position.x * 0.75; 
+            if (speedIntensity > 0.8) targetCamX += (Math.random() - 0.5) * 1.5; 
+            
+            camera.position.x = lerp(camera.position.x, targetCamX, 0.05);
+            camera.position.y = lerp(camera.position.y, 35 - (speedIntensity * 18), 0.05);
+            camera.position.z = lerp(camera.position.z, 65 + (speedIntensity * 15), 0.05);
+            camera.fov = lerp(camera.fov, 65 + (speedIntensity * 55), 0.05);
+            camera.updateProjectionMatrix();
+
+            let targetTilt = -shipVelocityX * 0.035;
+            camera.up.set(targetTilt, 1, 0).normalize();
+            
+            camera.lookAt(ship.position.x * 0.85, 4, -40);
 
             if (holdingLeft) shipVelocityX -= shipAcceleration; if (holdingRight) shipVelocityX += shipAcceleration;
             shipVelocityX *= shipFriction; ship.position.x += shipVelocityX;
@@ -712,8 +732,14 @@
 
             if (invincibilityFrames > 0) { invincibilityFrames--; ship.visible = (invincibilityFrames % 10 < 5); } else { ship.visible = true; }
             if (isBreakerActive) {
-                breakerFrames--; shieldMesh.rotation.y += 0.3; shieldMesh.rotation.x += 0.3;
-                if (breakerFrames <= 0) { isBreakerActive = false; shieldMesh.material.color.setHex(0x0088ff); shieldMesh.material.wireframe = true; shieldMesh.material.opacity = 0.8; }
+                breakerFrames--; 
+                coinMeter = (breakerFrames / 360) * 100; // Physically drains the bar over time
+                shieldMesh.rotation.y += 0.3; shieldMesh.rotation.x += 0.3;
+                if (breakerFrames <= 0) { 
+                    isBreakerActive = false; 
+                    coinMeter = 0;
+                    shieldMesh.material.color.setHex(0x0088ff); shieldMesh.material.wireframe = true; shieldMesh.material.opacity = 0.8; 
+                }
             }
             if (!isBreakerActive) { shieldMesh.visible = (shields > 0); shieldMesh.rotation.y += 0.02; }
 
