@@ -33,7 +33,6 @@
         #main-menu h1 { color: #fff; font-size: 32px; margin-top: 0; text-shadow: 4px 4px 0px #ff3366;}
         #main-menu h2 { color: #ffcc00; font-size: 18px; margin-bottom: 20px; }
         
-        /* Leaderboard Box */
         #leaderboard-container {
             background: rgba(0, 50, 50, 0.5); border: 2px solid #00ffcc;
             padding: 15px; margin-bottom: 10px; font-size: 14px;
@@ -78,7 +77,6 @@
             transition: opacity 1.5s ease-out;
         }
         
-        /* Custom Scrollbar for Leaderboard */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #001111; }
         ::-webkit-scrollbar-thumb { background: #00ffcc; }
@@ -170,24 +168,22 @@
     <div id="detonation-flash"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    
     <script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-firestore-compat.js"></script>
 
     <script>
-        // --- AUDIO SYSTEM (Music & Web Audio API Synth) ---
+        // --- AUDIO SYSTEM ---
         let menuMusic = new Audio('menu.mp3'); menuMusic.loop = true;
         let gameMusic = new Audio('song.mp3'); gameMusic.loop = true;
         let audioCtx;
         
+        let engineOsc, engineGain, whineOsc, whineGain;
+
         function initAudioContext() {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             if (audioCtx.state === 'suspended') audioCtx.resume();
         }
 
-        // Initialize menu music on the very first user interaction (Browser Autoplay Policy)
         document.body.addEventListener('click', () => {
             if (gameState === 'menu' && menuMusic.paused) {
                 menuMusic.play().catch(e => console.log("No menu.mp3 found or blocked."));
@@ -195,7 +191,29 @@
             initAudioContext();
         }, { once: true });
 
-        // Procedural Retro Sound Effects
+        // Dynamic Continuous Engine Sounds
+        function initEngineAudio() {
+            if (!audioCtx) return;
+            if (engineOsc) return; 
+            
+            engineOsc = audioCtx.createOscillator();
+            engineGain = audioCtx.createGain();
+            engineOsc.type = 'sawtooth';
+            engineOsc.connect(engineGain);
+            engineGain.connect(audioCtx.destination);
+            engineGain.gain.value = 0;
+            engineOsc.start();
+
+            whineOsc = audioCtx.createOscillator();
+            whineGain = audioCtx.createGain();
+            whineOsc.type = 'triangle';
+            whineOsc.connect(whineGain);
+            whineGain.connect(audioCtx.destination);
+            whineGain.gain.value = 0;
+            whineOsc.start();
+        }
+
+        // Action SFX
         function playTone(freq, type, duration, vol = 0.1) {
             if (!audioCtx) return;
             const osc = audioCtx.createOscillator();
@@ -211,8 +229,43 @@
         function sfxShieldCoin() { playTone(440, 'square', 0.1, 0.1); setTimeout(() => playTone(880, 'square', 0.2, 0.1), 100); }
         function sfxHit() { playTone(150, 'sawtooth', 0.3, 0.3); setTimeout(() => playTone(100, 'sawtooth', 0.4, 0.2), 50); }
         function sfxShieldHit() { playTone(300, 'square', 0.2, 0.2); setTimeout(() => playTone(200, 'square', 0.2, 0.1), 100); }
-        function sfxBoostUp() { playTone(300, 'triangle', 0.2, 0.1); setTimeout(() => playTone(450, 'triangle', 0.3, 0.1), 100); }
-        function sfxBreaker() { playTone(200, 'sawtooth', 1.0, 0.2); }
+        
+        function sfxGearShift(gear) { 
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(200 + (gear * 150), audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600 + (gear * 200), audioCtx.currentTime + 0.1);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        function sfxBreaker() { 
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.2);
+            osc.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime + 0.6);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.0);
+            osc.start(); osc.stop(audioCtx.currentTime + 1.0);
+        }
+
+        function sfxStarExplode() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = 'square'; 
+            osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1, audioCtx.currentTime + 3.0);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 3.0);
+            osc.start(); osc.stop(audioCtx.currentTime + 3.0);
+        }
 
         // --- FIREBASE INITIALIZATION ---
         const firebaseConfig = {
@@ -290,12 +343,11 @@
         document.getElementById('submit-score-btn').addEventListener('click', () => submitToFirebase(playerName, score));
         document.getElementById('show-all-btn').addEventListener('click', () => {
             document.getElementById('show-all-btn').style.display = 'none';
-            fetchLeaderboard(100); // Fetch up to 100 to prevent massive DB read costs
+            fetchLeaderboard(100); 
         });
 
         init(); animate(); fetchLeaderboard(20);
 
-        // --- FIREBASE LEADERBOARD LOGIC ---
         function fetchLeaderboard(limitCount) {
             leaderboardContainer.innerHTML = "<p style='color:#00ffcc; font-size:12px;' class='blink'>FETCHING...</p>";
             db.collection("highscores").orderBy("score", "desc").limit(limitCount).get().then((snapshot) => {
@@ -338,7 +390,6 @@
             });
         }
 
-        // --- THREE.JS GAME LOGIC ---
         function init() {
             scene = new THREE.Scene();
             scene.fog = new THREE.Fog(0x000000, 500, 35000);
@@ -498,10 +549,12 @@
             detFlashEl.style.transition = 'none'; detFlashEl.style.opacity = '1'; void detFlashEl.offsetWidth; detFlashEl.style.transition = 'opacity 2.0s ease-out'; detFlashEl.style.opacity = '0';
             sectorLevel++; distTraveled = 0; levelTargetDist = 15000 + (sectorLevel * 3000); maxAsteroids = 15 + Math.floor(sectorLevel * 1.5); baseSpeed = 4.0 + (sectorLevel * 0.2);
             generateStar(); score += 5000 * sectorLevel; invincibilityFrames = 120;
+            sfxStarExplode();
         }
 
         function startGame() {
             initAudioContext();
+            initEngineAudio();
             menuMusic.pause(); menuMusic.currentTime = 0;
             gameMusic.play().catch(e => console.log("No song.mp3 found."));
             
@@ -513,6 +566,7 @@
         }
 
         function resetGame() {
+            initEngineAudio();
             document.getElementById('submit-score-btn').innerText = "SUBMIT TO DATABASE";
             document.getElementById('submit-score-btn').disabled = false;
             
@@ -551,6 +605,32 @@
             }
         }
 
+        function updateEngineAudio(speedIntensity, holdingGas, holdingBrake) {
+            if (!engineGain || !whineGain) return;
+
+            if (gameState === 'playing') {
+                let rumbleVol = 0.05;
+                let rumbleFreq = 30 + (speedIntensity * 40);
+                
+                if (holdingGas) { rumbleVol = 0.15; rumbleFreq += 20; }
+                if (holdingBrake) { rumbleVol = 0.2; rumbleFreq -= 10; }
+                if (isBreakerActive) { rumbleVol = 0.3; rumbleFreq += 50; }
+
+                engineGain.gain.setTargetAtTime(rumbleVol, audioCtx.currentTime, 0.1);
+                engineOsc.frequency.setTargetAtTime(rumbleFreq, audioCtx.currentTime, 0.1);
+
+                let whineVol = speedIntensity * 0.15;
+                let whineFreq = 300 + (speedIntensity * 1200);
+                if (isBreakerActive) whineFreq = 2000;
+                
+                whineGain.gain.setTargetAtTime(whineVol, audioCtx.currentTime, 0.1);
+                whineOsc.frequency.setTargetAtTime(whineFreq, audioCtx.currentTime, 0.1);
+            } else {
+                engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                whineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            }
+        }
+
         function animate() {
             requestAnimationFrame(animate);
             gameTime++;
@@ -563,7 +643,11 @@
                 return; 
             }
 
-            if (gameState === 'gameover') { renderer.render(scene, camera); return; }
+            if (gameState === 'gameover') { 
+                updateEngineAudio(0, false, false);
+                renderer.render(scene, camera); 
+                return; 
+            }
 
             if (health > 0 && health < 100) health = Math.min(100, health + 0.04); 
 
@@ -580,8 +664,9 @@
             } else if (!holdingGas) { if (boostCharge > 0 && !needsRelease) boostCharge -= 0.5; }
 
             if(boostGear !== prevGear) { 
-                triggerGearFlash(boostGear); prevGear = boostGear;
-                if (boostGear > 0) sfxBoostUp(); 
+                triggerGearFlash(boostGear); 
+                if (boostGear > prevGear) sfxGearShift(boostGear);
+                prevGear = boostGear;
             }
 
             let targetSpeed = baseSpeed + (boostGear * 3.5); if (isBreakerActive) targetSpeed = baseSpeed + 25; currentSpeed = lerp(currentSpeed, targetSpeed, 0.012); 
@@ -592,6 +677,8 @@
 
             const maxSpeedCap = baseSpeed + 25; let speedIntensity = (currentSpeed - baseSpeed) / (maxSpeedCap - baseSpeed); 
             
+            updateEngineAudio(Math.max(0, speedIntensity), holdingGas, holdingBrake);
+
             let uiSpread = speedIntensity * 60; 
             uiGroupShields.setAttribute('transform', `translate(${150 - uiSpread}, ${80 - uiSpread})`);
             uiGroupScore.setAttribute('transform', `translate(${1770 + uiSpread}, ${80 - uiSpread})`);
@@ -655,6 +742,7 @@
                             if (health <= 0) { 
                                 health = 0; gameState = 'gameover'; 
                                 gameMusic.pause();
+                                updateEngineAudio(0, false, false);
                                 finalScoreEl.innerText = Math.floor(score); finalLevelEl.innerText = sectorLevel; 
                                 gameOverEl.style.display = 'block'; 
                                 if(score > localHighScore) { 
